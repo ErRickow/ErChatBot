@@ -5,6 +5,7 @@ from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.types import ParseMode, InputMediaPhoto
 from aiogram.utils import executor
 from dotenv import load_dotenv
+import subprocess
 
 # Memuat variabel lingkungan
 load_dotenv()
@@ -52,7 +53,7 @@ async def handle_error(message: types.Message):
 # Fungsi untuk mendapatkan informasi kartu
 def get_card_data(card_name: str):
     response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
-    
+
     if response.status_code == 200:
         data = response.json()
         if isinstance(data, dict) and 'data' in data and len(data['data']) > 0:
@@ -103,7 +104,7 @@ async def get_stats(message: types.Message):
 
     if card_data:
         info = f"Name: {card_data['name']}\nCard Type: {card_data['type']}\nSubtype: {card_data['race']}\n"
-        
+
         if card_data.get('archetype'):
             info += f"Archetype: {card_data['archetype']}\n"
 
@@ -158,6 +159,18 @@ async def draw_card(message: types.Message):
             await handle_error(message)  # Jika data tidak valid
     else:
         await handle_error(message)  # Jika permintaan API gagal
+
+# Handler untuk memperbarui bot
+@dp.message_handler(commands=['update'])
+async def update_bot(message: types.Message):
+    # Ganti dengan ID pengguna yang diizinkan
+    allowed_user_id = YOUR_USER_ID
+    if message.from_user.id == allowed_user_id:
+        await message.reply("Updating bot... Please wait.")
+        result = subprocess.run(['git', 'pull'], capture_output=True, text=True)
+        await message.reply(f"Update result:\n{result.stdout}\n{result.stderr}")
+    else:
+        await message.reply("You are not authorized to perform this action.")
 
 # Memulai bot
 if __name__ == '__main__':
