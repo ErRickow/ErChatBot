@@ -1,6 +1,3 @@
-asyncio
-dnspython
-motor
-pyrogram==1.4.16
-python-dotenv
-tgcrypto
+aiogram==2.24
+requests==2.31.0
+python-dotenv==1.0.0
