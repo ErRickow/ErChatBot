@@ -1,314 +1,154 @@
-#
-# Copyright (C) 2021-2022 by TeamYukki@Github, < https://github.com/YukkiChatBot >.
-#
-# This file is part of < https://github.com/TeamYukki/YukkiChatBot > project,
-# and is released under the "GNU v3.0 License Agreement".
-# Please see < https://github.com/TeamYukki/YukkiChatBot/blob/master/LICENSE >
-#
-# All rights reserved.
-#
+import os
+import requests
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.types import ParseMode, InputMediaPhoto
+from aiogram.utils import executor
+from dotenv import load_dotenv
 
-import asyncio
-from sys import version as pyver
+# Memuat variabel lingkungan
+load_dotenv()
 
-import pyrogram
-from pyrogram import __version__ as pyrover
-from pyrogram import filters, idle
-from pyrogram.errors import FloodWait
-from pyrogram.types import Message
+# Inisialisasi bot dan dispatcher
+bot = Bot(token=os.getenv("TELEGRAM_TOKEN"))
+dp = Dispatcher(bot)
+dp.middleware.setup(LoggingMiddleware())
 
-import config
-import mongo
-from mongo import db
+# Tipe kartu Yu-Gi-Oh
+CARD_TYPES = {
+    "SPELL": "Spell Card",
+    "TRAP": "Trap Card",
+    "MONSTER": "Monster Card"
+}
 
-loop = asyncio.get_event_loop()
-SUDO_USERS = config.SUDO_USER
-
-app = pyrogram.Client(
-    ":YukkiBot:",
-    config.API_ID,
-    config.API_HASH,
-    bot_token=config.BOT_TOKEN,
-)
-
-save = {}
-grouplist = 1
-
-
-async def init():
-    await app.start()
-
-    @app.on_message(filters.command(["start", "help"]))
-    async def start_command(_, message: Message):
-        if await mongo.is_banned_user(message.from_user.id):
-            return
-        await mongo.add_served_user(message.from_user.id)
-        await message.reply_text(config.PRIVATE_START_MESSAGE)
-
-    @app.on_message(
-        filters.command("mode") & filters.user(SUDO_USERS)
+# Pesan welcome
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
+    await message.reply(
+        "*Welcome!*\n\nI can search _YU-GI-OH!_ cards for you! \n\nSend /help for more information!",
+        parse_mode=ParseMode.MARKDOWN
     )
-    async def mode_func(_, message: Message):
-        if db is None:
-            return await message.reply_text(
-                "MONGO_DB_URI var not defined. Please define it first"
-            )
-        usage = "**Usage:**\n\n/mode [group | private]\n\n**Group**: All the incoming messages will be forwarded to Log group.\n\n**Private**: All the incoming messages will be forwarded to the Private Messages of SUDO_USERS"
-        if len(message.command) != 2:
-            return await message.reply_text(usage)
-        state = message.text.split(None, 1)[1].strip()
-        state = state.lower()
-        if state == "group":
-            await mongo.group_on()
-            await message.reply_text(
-                "Group Mode Enabled. All the incoming messages will be forwarded to LOG Group"
-            )
-        elif state == "private":
-            await mongo.group_off()
-            await message.reply_text(
-                "Private Mode Enabled. All the incoming messages will be forwarded to Private Message of all SUDO_USERs"
-            )
-        else:
-            await message.reply_text(usage)
 
-    @app.on_message(
-        filters.command("block") & filters.user(SUDO_USERS)
+# Daftar perintah
+@dp.message_handler(commands=['help'])
+async def send_help(message: types.Message):
+    await message.reply(
+        "List of Commands \n\n/start - Welcome message\n/about - Credits and Bot information\n/card {card name} - Replies with a picture of the card.\n/stats {card name} - Replies with information about the card.\n/price {card name} - Replies with the current lowest price on TCGPlayer.\n/artworks {card name} - Replies with all the artworks for a given card\n/draw - Replies with a random card\n\nAll card names need to be the exact name of the card.",
+        parse_mode=ParseMode.MARKDOWN
     )
-    async def block_func(_, message: Message):
-        if db is None:
-            return await message.reply_text(
-                "MONGO_DB_URI var not defined. Please define it first"
-            )
-        if message.reply_to_message:
-            if not message.reply_to_message.forward_sender_name:
-                return await message.reply_text(
-                    "Please reply to forwarded messages only."
-                )
-            replied_id = message.reply_to_message_id
-            try:
-                replied_user_id = save[replied_id]
-            except Exception as e:
-                print(e)
-                return await message.reply_text(
-                    "Failed to fetch user. You might've restarted bot or some error happened. Please check logs"
-                )
-            if await mongo.is_banned_user(replied_user_id):
-                return await message.reply_text("Already Blocked")
-            else:
-                await mongo.add_banned_user(replied_user_id)
-                await message.reply_text("Banned User from The Bot")
-                try:
-                    await app.send_message(
-                        replied_user_id,
-                        "You're now banned from using the Bot by admins.",
-                    )
-                except:
-                    pass
-        else:
-            return await message.reply_text(
-                "Reply to a user's forwarded message to block him from using the bot"
-            )
 
-    @app.on_message(
-        filters.command("unblock") & filters.user(SUDO_USERS)
+# Tentang bot
+@dp.message_handler(commands=['about'])
+async def about(message: types.Message):
+    await message.reply(
+        "*Made by @delctrl*\n\nThe *Yu-gi-oh! API* can be found at https://db.ygoprodeck.com/api-guide/",
+        parse_mode=ParseMode.MARKDOWN
     )
-    async def unblock_func(_, message: Message):
-        if db is None:
-            return await message.reply_text(
-                "MONGO_DB_URI var not defined. Please define it first"
-            )
-        if message.reply_to_message:
-            if not message.reply_to_message.forward_sender_name:
-                return await message.reply_text(
-                    "Please reply to forwarded messages only."
-                )
-            replied_id = message.reply_to_message_id
-            try:
-                replied_user_id = save[replied_id]
-            except Exception as e:
-                print(e)
-                return await message.reply_text(
-                    "Failed to fetch user. You might've restarted bot or some error happened. Please check logs"
-                )
-            if not await mongo.is_banned_user(replied_user_id):
-                return await message.reply_text("Already UnBlocked")
-            else:
-                await mongo.remove_banned_user(replied_user_id)
-                await message.reply_text(
-                    "Unblocked User from The Bot"
-                )
-                try:
-                    await app.send_message(
-                        replied_user_id,
-                        "You're now unbanned from the Bot by admins.",
-                    )
-                except:
-                    pass
-        else:
-            return await message.reply_text(
-                "Reply to a user's forwarded message to unblock him from the bot"
-            )
 
-    @app.on_message(
-        filters.command("stats") & filters.user(SUDO_USERS)
-    )
-    async def stats_func(_, message: Message):
-        if db is None:
-            return await message.reply_text(
-                "MONGO_DB_URI var not defined. Please define it first"
-            )
-        served_users = len(await mongo.get_served_users())
-        blocked = await mongo.get_banned_count()
-        text = f""" **ChatBot Stats:**
+# Penanganan kesalahan
+async def handle_error(message: types.Message):
+    await message.reply("Card not found", reply_to_message_id=message.message_id)
+
+# Mendapatkan gambar kartu berdasarkan nama
+@dp.message_handler(lambda message: message.text.startswith("/card"))
+async def get_card(message: types.Message):
+    card_name = message.text[len("/card "):].strip()
+    response = requests.get(f'https://db.ygoprodeck.com/api/v5/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        data = response.json()
+        card_image_url = data[0]['card_images'][0]['image_url']
+        await message.reply_photo(card_image_url, reply_to_message_id=message.message_id)
+    else:
+        await handle_error(message)
+
+# Mendapatkan harga terendah dari TCGPlayer
+@dp.message_handler(lambda message: message.text.startswith("/price"))
+async def get_price(message: types.Message):
+    card_name = message.text[len("/price "):].strip()
+    response = requests.get(f'https://db.ygoprodeck.com/api/v5/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        data = response.json()
+        price = data[0]['card_prices'][0]['tcgplayer_price']
+        await message.reply(f'TCGPlayer Price: ${price}', reply_to_message_id=message.message_id)
+    else:
+        await handle_error(message)
+
+# Mendapatkan efek kartu
+@dp.message_handler(lambda message: message.text.startswith("/effect"))
+async def get_effect(message: types.Message):
+    card_name = message.text[len("/effect "):].strip()
+    response = requests.get(f'https://db.ygoprodeck.com/api/v5/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        data = response.json()
+        card_info = f"Name: {data[0]['name']}\nEffect: {data[0]['desc']}"
+        await message.reply(card_info, reply_to_message_id=message.message_id)
+    else:
+        await handle_error(message)
+
+# Mendapatkan informasi kartu
+@dp.message_handler(lambda message: message.text.startswith("/stats"))
+async def get_stats(message: types.Message):
+    card_name = message.text[len("/stats "):].strip()
+    response = requests.get(f'https://db.ygoprodeck.com/api/v5/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        card = response.json()[0]
+        info = f"Name: {card['name']}\nCard Type: {card['type']}\nSubtype: {card['race']}\n"
         
-**Python Version :** {pyver.split()[0]}
-**Pyrogram Version :** {pyrover}
-
-**Served Users:** {served_users} 
-**Blocked Users:** {blocked}"""
-        await message.reply_text(text)
-
-    @app.on_message(
-        filters.command("broadcast") & filters.user(SUDO_USERS)
-    )
-    async def broadcast_func(_, message: Message):
-        if db is None:
-            return await message.reply_text(
-                "MONGO_DB_URI var not defined. Please define it first"
-            )
-        if message.reply_to_message:
-            x = message.reply_to_message.message_id
-            y = message.chat.id
-        else:
-            if len(message.command) < 2:
-                return await message.reply_text(
-                    "**Usage**:\n/broadcast [MESSAGE] or [Reply to a Message]"
-                )
-            query = message.text.split(None, 1)[1]
-
-        susr = 0
-        served_users = []
-        susers = await mongo.get_served_users()
-        for user in susers:
-            served_users.append(int(user["user_id"]))
-        for i in served_users:
-            try:
-                await app.forward_messages(
-                    i, y, x
-                ) if message.reply_to_message else await app.send_message(
-                    i, text=query
-                )
-                susr += 1
-            except FloodWait as e:
-                flood_time = int(e.x)
-                if flood_time > 200:
-                    continue
-                await asyncio.sleep(flood_time)
-            except Exception:
-                pass
-        try:
-            await message.reply_text(
-                f"**Broadcasted Message to {susr} Users.**"
-            )
-        except:
-            pass
-
-    @app.on_message(filters.private & ~filters.edited)
-    async def incoming_private(_, message):
-        user_id = message.from_user.id
-        if await mongo.is_banned_user(user_id):
-            return
-        if user_id in SUDO_USERS:
-            if message.reply_to_message:
-                if (
-                    message.text == "/unblock"
-                    or message.text == "/block"
-                    or message.text == "/broadcast"
-                ):
-                    return
-                if not message.reply_to_message.forward_sender_name:
-                    return await message.reply_text(
-                        "Please reply to forwarded messages only."
-                    )
-                replied_id = message.reply_to_message_id
-                try:
-                    replied_user_id = save[replied_id]
-                except Exception as e:
-                    print(e)
-                    return await message.reply_text(
-                        "Failed to fetch user. You might've restarted bot or some error happened. Please check logs"
-                    )
-                try:
-                    return await app.copy_message(
-                        replied_user_id,
-                        message.chat.id,
-                        message.message_id,
-                    )
-                except Exception as e:
-                    print(e)
-                    return await message.reply_text(
-                        "Failed to send the message, User might have blocked the bot or something wrong happened. Please check logs"
-                    )
-        else:
-            if await mongo.is_group():
-                try:
-                    forwarded = await app.forward_messages(
-                        config.LOG_GROUP_ID,
-                        message.chat.id,
-                        message.message_id,
-                    )
-                    save[forwarded.message_id] = user_id
-                except:
-                    pass
+        if card.get('archetype'):
+            info += f"Archetype: {card['archetype']}\n"
+        
+        if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']]:
+            if "XYZ" in card['type']:
+                info += f"Rank: {card['level']}\n"
+            elif "Link" in card['type']:
+                info += f"Link Rating: {card['linkval']}\nLink Markers: {' | '.join(card['linkmarkers'])}\n"
             else:
-                for user in SUDO_USERS:
-                    try:
-                        forwarded = await app.forward_messages(
-                            user, message.chat.id, message.message_id
-                        )
-                        save[forwarded.message_id] = user_id
-                    except:
-                        pass
+                info += f"Level: {card['level']}\n"
+            
+            info += f"Attribute: {card['attribute']}\nType: {card['race']}\nAttack: {card['atk']}\n"
+            
+            if "Link" not in card['type']:
+                info += f"Defense: {card['def']}\n"
+            
+            if "Pendulum" in card['type']:
+                info += f"Pendulum Scale: {card['scale']}\n"
+        
+        if card.get('banlist_info') and card['banlist_info'].get('ban_tcg'):
+            info += f"Banlist Status: {card['banlist_info']['ban_tcg']}\n"
+        
+        await message.reply(info, reply_to_message_id=message.message_id)
+    else:
+        await handle_error(message)
 
-    @app.on_message(
-        filters.group & ~filters.edited & filters.user(SUDO_USERS),
-        group=grouplist,
-    )
-    async def incoming_groups(_, message):
-        if message.reply_to_message:
-            if (
-                message.text == "/unblock"
-                or message.text == "/block"
-                or message.text == "/broadcast"
-            ):
-                return
-            replied_id = message.reply_to_message_id
-            if not message.reply_to_message.forward_sender_name:
-                return await message.reply_text(
-                    "Please reply to forwarded messages only."
-                )
-            try:
-                replied_user_id = save[replied_id]
-            except Exception as e:
-                print(e)
-                return await message.reply_text(
-                    "Failed to fetch user. You might've restarted bot or some error happened. Please check logs"
-                )
-            try:
-                return await app.copy_message(
-                    replied_user_id,
-                    message.chat.id,
-                    message.message_id,
-                )
-            except Exception as e:
-                print(e)
-                return await message.reply_text(
-                    "Failed to send the message, User might have blocked the bot or something wrong happened. Please check logs"
-                )
+# Mendapatkan semua karya seni dari kartu
+@dp.message_handler(lambda message: message.text.startswith("/artworks"))
+async def get_artworks(message: types.Message):
+    card_name = message.text[len("/artworks "):].strip()
+    response = requests.get(f'https://db.ygoprodeck.com/api/v5/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        data = response.json()
+        images = [InputMediaPhoto(media=img['image_url']) for img in data[0]['card_images']]
+        await bot.send_media_group(chat_id=message.chat.id, media=images)
+    else:
+        await handle_error(message)
 
-    print("[LOG] - Yukki Chat Bot Started")
-    await idle()
+# Menggambar kartu acak
+@dp.message_handler(commands=['draw'])
+async def draw_card(message: types.Message):
+    response = requests.get("https://db.ygoprodeck.com/api/v5/randomcard.php")
+    
+    if response.status_code == 200:
+        card = response.json()[0]
+        caption = "MONSUTA CADO!!!" if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']] else ""
+        await message.reply_photo(card['card_images'][0]['image_url'], caption=caption, reply_to_message_id=message.message_id)
+    else:
+        await handle_error(message)
 
-
-if __name__ == "__main__":
-    loop.run_until_complete(init())
+# Memulai bot
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
