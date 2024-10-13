@@ -49,19 +49,25 @@ async def about(message: types.Message):
 async def handle_error(message: types.Message):
     await message.reply("Card not found")
 
+# Fungsi untuk mendapatkan informasi kartu
+def get_card_data(card_name: str):
+    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    
+    if response.status_code == 200:
+        data = response.json()
+        if isinstance(data, dict) and 'data' in data and len(data['data']) > 0:
+            return data['data'][0]  # Mengembalikan kartu pertama
+    return None
+
 # Mendapatkan gambar kartu berdasarkan nama
 @dp.message_handler(lambda message: message.text.startswith("/card"))
 async def get_card(message: types.Message):
     card_name = message.text[len("/card "):].strip()
-    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    card_data = get_card_data(card_name)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data and 'card_images' in data[0]:  # Memastikan data valid
-            card_image_url = data[0]['card_images'][0]['image_url']
-            await message.reply_photo(card_image_url)
-        else:
-            await handle_error(message)
+    if card_data:
+        card_image_url = card_data['card_images'][0]['image_url']
+        await message.reply_photo(card_image_url)
     else:
         await handle_error(message)
 
@@ -69,15 +75,11 @@ async def get_card(message: types.Message):
 @dp.message_handler(lambda message: message.text.startswith("/price"))
 async def get_price(message: types.Message):
     card_name = message.text[len("/price "):].strip()
-    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    card_data = get_card_data(card_name)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data and 'card_prices' in data[0]:  # Memastikan data valid
-            price = data[0]['card_prices'][0]['tcgplayer_price']
-            await message.reply(f'TCGPlayer Price: ${price}')
-        else:
-            await handle_error(message)
+    if card_data:
+        price = card_data['card_prices'][0]['tcgplayer_price']
+        await message.reply(f'TCGPlayer Price: ${price}')
     else:
         await handle_error(message)
 
@@ -85,15 +87,11 @@ async def get_price(message: types.Message):
 @dp.message_handler(lambda message: message.text.startswith("/effect"))
 async def get_effect(message: types.Message):
     card_name = message.text[len("/effect "):].strip()
-    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    card_data = get_card_data(card_name)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data:  # Memastikan data valid
-            card_info = f"Name: {data[0]['name']}\nEffect: {data[0]['desc']}"
-            await message.reply(card_info)
-        else:
-            await handle_error(message)
+    if card_data:
+        card_info = f"Name: {card_data['name']}\nEffect: {card_data['desc']}"
+        await message.reply(card_info)
     else:
         await handle_error(message)
 
@@ -101,39 +99,34 @@ async def get_effect(message: types.Message):
 @dp.message_handler(lambda message: message.text.startswith("/stats"))
 async def get_stats(message: types.Message):
     card_name = message.text[len("/stats "):].strip()
-    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    card_data = get_card_data(card_name)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data:  # Memastikan data valid
-            card = data[0]
-            info = f"Name: {card['name']}\nCard Type: {card['type']}\nSubtype: {card['race']}\n"
+    if card_data:
+        info = f"Name: {card_data['name']}\nCard Type: {card_data['type']}\nSubtype: {card_data['race']}\n"
+        
+        if card_data.get('archetype'):
+            info += f"Archetype: {card_data['archetype']}\n"
 
-            if card.get('archetype'):
-                info += f"Archetype: {card['archetype']}\n"
+        if card_data['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']]:
+            if "XYZ" in card_data['type']:
+                info += f"Rank: {card_data['level']}\n"
+            elif "Link" in card_data['type']:
+                info += f"Link Rating: {card_data['linkval']}\nLink Markers: {' | '.join(card_data['linkmarkers'])}\n"
+            else:
+                info += f"Level: {card_data['level']}\n"
 
-            if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']]:
-                if "XYZ" in card['type']:
-                    info += f"Rank: {card['level']}\n"
-                elif "Link" in card['type']:
-                    info += f"Link Rating: {card['linkval']}\nLink Markers: {' | '.join(card['linkmarkers'])}\n"
-                else:
-                    info += f"Level: {card['level']}\n"
+            info += f"Attribute: {card_data['attribute']}\nType: {card_data['race']}\nAttack: {card_data['atk']}\n"
 
-                info += f"Attribute: {card['attribute']}\nType: {card['race']}\nAttack: {card['atk']}\n"
+            if "Link" not in card_data['type']:
+                info += f"Defense: {card_data['def']}\n"
 
-                if "Link" not in card['type']:
-                    info += f"Defense: {card['def']}\n"
+            if "Pendulum" in card_data['type']:
+                info += f"Pendulum Scale: {card_data['scale']}\n"
 
-                if "Pendulum" in card['type']:
-                    info += f"Pendulum Scale: {card['scale']}\n"
+        if card_data.get('banlist_info') and card_data['banlist_info'].get('ban_tcg'):
+            info += f"Banlist Status: {card_data['banlist_info']['ban_tcg']}\n"
 
-            if card.get('banlist_info') and card['banlist_info'].get('ban_tcg'):
-                info += f"Banlist Status: {card['banlist_info']['ban_tcg']}\n"
-
-            await message.reply(info)
-        else:
-            await handle_error(message)
+        await message.reply(info)
     else:
         await handle_error(message)
 
@@ -141,15 +134,11 @@ async def get_stats(message: types.Message):
 @dp.message_handler(lambda message: message.text.startswith("/artworks"))
 async def get_artworks(message: types.Message):
     card_name = message.text[len("/artworks "):].strip()
-    response = requests.get(f'https://db.ygoprodeck.com/api/v7/cardinfo.php?name={card_name}')
+    card_data = get_card_data(card_name)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data and 'card_images' in data[0]:  # Memastikan data valid
-            images = [InputMediaPhoto(media=img['image_url']) for img in data[0]['card_images']]
-            await bot.send_media_group(chat_id=message.chat.id, media=images)
-        else:
-            await handle_error(message)
+    if card_data:
+        images = [InputMediaPhoto(media=img['image_url']) for img in card_data['card_images']]
+        await bot.send_media_group(chat_id=message.chat.id, media=images)
     else:
         await handle_error(message)
 
@@ -161,15 +150,14 @@ async def draw_card(message: types.Message):
     if response.status_code == 200:
         data = response.json()  # Ambil data JSON
 
-        if data and isinstance(data, list) and len(data) > 0:  # Memastikan data valid dan memiliki elemen
-            card = data[0]
+        if data and isinstance(data, dict) and 'data' in data and len(data['data']) > 0:  # Memastikan data valid
+            card = data['data'][0]
             caption = "MONSUTA CADO!!!" if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']] else ""
             await message.reply_photo(card['card_images'][0]['image_url'], caption=caption)
         else:
             await handle_error(message)  # Jika data tidak valid
     else:
         await handle_error(message)  # Jika permintaan API gagal
-
 
 # Memulai bot
 if __name__ == '__main__':
