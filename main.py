@@ -159,11 +159,17 @@ async def draw_card(message: types.Message):
     response = requests.get("https://db.ygoprodeck.com/api/v7/randomcard.php")
 
     if response.status_code == 200:
-        card = response.json()[0]
-        caption = "MONSUTA CADO!!!" if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']] else ""
-        await message.reply_photo(card['card_images'][0]['image_url'], caption=caption)
+        data = response.json()  # Ambil data JSON
+
+        if data and isinstance(data, list) and len(data) > 0:  # Memastikan data valid dan memiliki elemen
+            card = data[0]
+            caption = "MONSUTA CADO!!!" if card['type'] not in [CARD_TYPES['SPELL'], CARD_TYPES['TRAP']] else ""
+            await message.reply_photo(card['card_images'][0]['image_url'], caption=caption)
+        else:
+            await handle_error(message)  # Jika data tidak valid
     else:
-        await handle_error(message)
+        await handle_error(message)  # Jika permintaan API gagal
+
 
 # Memulai bot
 if __name__ == '__main__':
